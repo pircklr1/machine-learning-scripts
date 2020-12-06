@@ -1,0 +1,599 @@
+---
+title: "Heart disease detection"
+output: 
+  pdf_document: 
+    toc: yes
+    toc_depth: 1
+---
+
+# 1. Introduction
+
+The purpose of this notebook is to study if heart diseases could be detected confidently from a set of just a few features by applying Bayesian data analysis methods. In addition to this, another main interests is to find, which features are the most valuable for indicating a heart disease. The study has been completed using a widely popular Cleveland Heart Disease dataset from the UCI Repository [1]. 
+
+While various studies on this dataset have been performed in the past, they have seldom if ever used Bayesian data analysis. In this notebook, logistic regression model is tested with weak informative default, horseshoe, and student t priors. Also models using different number of features are compared.
+
+The structure of this notebook is following: First, in Section 1.1 background on heart diseases are introduced to give better understanding on the topic, and the importance of the topic. After this, in Section 1.2, previous studies are presented. After setting up the libraries (Section 2), the dataset is analyzed (Section 3). After this, the feature selection (Section 4) and model comparison (Section 5) are studied. Section 6 presents the Stan code behind the used models. Lastly, in Section 7, the results are summarized and conclusions are made. Also, possibilities for future research, and problems are addressed in this section. Information on the computing environment, as well as the references can be found from the end of the notebook.
+
+## 1.1 Heart disease
+
+Heart disease describes a range of conditions that affect the heart, including blood vessel diseases, such as coronary artery disease, heart rhythm problems (arrhythmia) and heart defects people are born with (congenital heart defects). Heart disease is one of the biggest causes of morbidity and mortality among the population of the world. About 655 000 people die of heart disease in the United States every year – that’s 1 in every 4 deaths. Heart disease is the leading cause of death for both men and women. [2]
+
+## 1.2 Previous studies
+
+Various studies have been completed in the past using the Cleveland Heart Disease dataset. In Kaggle notebooks, categorization accuracies between 80-89 have been achieved using traditional machine learning methods such as support vector machines, logistic regression, random forests, and K-nearest neighbors [3]. Similar resulsts have been achieved by Shubhankar Rawat in [4]. Subbulakshmi [5], on the other hand, achieved accuracies of 89 % and 91 % by combining Particle Swarm Optimization with Extreme Learning Machine Classifier. KarenGárate-Escamila et al. [6], reached an impressive 98.7 % accuracy using Chi-square and principal component analysis (CHI-PCA) with random forests (RF).
+
+
+# 2. Setup
+```{r message=FALSE}
+library(knitr)
+library(here)
+library(rstanarm)
+options(mc.cores = parallel::detectCores())
+library(loo)
+library(projpred)
+library(ggplot2)
+library(bayesplot)
+theme_set(bayesplot::theme_default(base_family = "sans"))
+library(corrplot)
+library(tidyr)
+library(brms)
+SEED=1513306866
+```
+
+
+# 3. Heart disease data
+
+The dataset used in this notebook is the Cleveland Heart Disease dataset from the UCI Repository. Originally, the dataset consisted of 75 attributes. However, most studies on the dataset seem to have used a subset of 14 attributes. Originally, my interest was on studying whether features such as smoking habits could help detecting a heart disease. Unfortunately, the original dataset has been compromised, and is not currently available at the UCI Repository.
+
+The meaning of the features is following:
+
+* age: age in years
+
+* sex: sex (1 = male; 0 = female)
+
+* trestbps: resting blood pressure (in mm Hg on admission to the hospital)
+
+* cp: chest pain type
+
+    + Value 1: typical angina
+
+    + Value 2: atypical angina
+
+    + Value 3: non-anginal pain
+    
+    + Value 4: asymptomatic
+
+* exang: exercise induced angina (1 = yes; 0 = no)
+
+* oldpeak = ST depression induced by exercise relative to rest
+
+* slope: the slope of the peak exercise ST segment
+
+    + Value 1: upsloping
+
+    + Value 2: flat
+
+    + Value 3: downsloping
+
+* thalach: maximum heart rate achieved
+
+* restecg: resting electrocardiographic results
+
+    + Value 0: normal
+
+    + Value 1: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV)
+
+    + Value 2: showing probable or definite left ventricular hypertrophy by Estes' criteria
+
+* ca: number of major vessels (0-3) colored by flourosopy
+
+* chol: serum cholestoral in mg/dl
+
+* fbs: fasting blood sugar > 120 mg/dl (1 = true; 0 = false)
+
+* thal: thalassemia, 3 = normal; 6 = fixed defect; 7 = reversable defect
+
+* heart_disease_group: The predicted attribute: values from 0 (no disease) to 4.
+
+The dataset contains 303 samples, as well as 13 features in addition to the information regarding the heart disease.
+
+```{r}
+d <- read.delim("processed.cleveland.data",  header=FALSE, sep = ",")
+colnames(d) <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", 
+                 "thalach", "exang", "oldpeak", "slope", "ca", "thal", 
+                 "heart_disease_group")
+dim(d)
+```
+
+## 3.1 Data processing
+
+The original dataset divided the diagnosis of heart disease into four categories, so that 0 describes no presence, and 1-4 different levels of presence. Since in this research, we are only interested to detecting whether a patient has a heart disease or not, the group variable is modified to binary so that 0 represents no presense and 1 represents some level of presense.
+
+```{r}
+d$heart_disease_group[which(d$heart_disease_group == 2)] = 1
+d$heart_disease_group[which(d$heart_disease_group == 3)] = 1
+d$heart_disease_group[which(d$heart_disease_group == 4)] = 1
+```
+
+Just to confirm that there are no duplicates in the dataset, we will try to remove such identical patients.
+```{r}
+d <- d[!duplicated(d), ] # remove the duplicates
+dim(d)
+```
+```{r}
+names(d)
+```
+
+```{r}
+summary(d)
+```
+
+# 4. Feature selection
+
+In thi section, feature selection is performed. Also, the most valuable features are studied.
+
+## 4.1 Feature correlation
+
+```{r}
+pred <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach", 
+          "exang", "oldpeak", "slope", "ca", "thal")
+target <- "heart_disease_group"
+p <- length(pred)
+
+#ds <- scale(d)
+df <- as.data.frame(d)
+df_transformed <- transform(df, ca = as.numeric(ca))
+df_transformed <- transform(df_transformed, thal = as.numeric(thal))
+df_cleaned <- na.omit(df_transformed) 
+df_cleaned[,1:13] <- scale(df_cleaned[,1:13])
+
+y <- df_cleaned$heart_disease_group
+
+corrplot(cor(df_cleaned[, c(target,pred)]))
+
+```
+
+From the correlation plot it can be seen that 5 features (cp, exang, oldpeak, ca, and thal) show some noticeable positive correlation with the heart disease group, while thalach shows some  negative correlation. These covariates can be considered especially interesting based on such a visual analysis.
+
+## 4.2 Regression model with default weak priors
+
+The feature selection is studied by fitting a logistic regression model with default weak priors.
+
+```{r tidy=TRUE} 
+fitg <- stan_glm(heart_disease_group ~ age + sex + cp + trestbps + chol + fbs 
+                 + restecg + thalach + exang + oldpeak + slope + ca + thal, 
+                 data = df_cleaned, family = binomial(link = "logit"))
+summary(fitg)
+```
+
+From the MCMC diagnostics it can be seen that the Rhat values are 1.0 which indicates that the convergence has been successful. Also the effective sample size (n_eff) can be seen to be sufficient.
+
+
+Next, a graphical posterior predictive check is performed to check that the model predictions make sense.
+
+```{r}
+yrep <- posterior_predict(fitg, draws = 50)
+ppc_dens_overlay(y, yrep)
+```
+
+The above, graphical posterior predictive check is used too check that the model predictions make sense. As can be clearly seen, the kernel density estimate for the data and posterior predictive replicates are similar.
+
+### Plot posterior marginals of coefficients
+
+Next, we plot marginal posterior of the coefficients.
+
+```{r}
+mcmc_areas(as.matrix(fitg),prob_outer = .95)
+```
+
+The presented graph indicates that especially ca, thal, thalach, fbs, cp, sex, and exang might be interesting features for further analysis.
+
+```{r}
+fitg_cv <- cv_varsel(fitg)
+solution_terms(fitg_cv)
+```
+
+It seems that similarly to the earlier conclusion from the correlation plot, thal and ca are the most valuable features while age is the least valuable when detecting heart diseases - at least based on this dataset. 
+
+```{r}
+plot(fitg_cv, stats = c('elpd', 'rmse'))
+```
+
+Based on the plot, 6 variables and projected posterior provide practically the same predictive performance as the full model. Let's still check the suggested size of variables:
+
+### Recommended model size
+
+We can get a LOO based recommendation for the model size to choose:
+
+```{r}
+(nv <- suggest_size(fitg_cv, alpha=0.1))
+```
+
+Next we form the projected posterior for the chosen model.
+
+```{r}
+projg <- project(fitg_cv, nv = nv, ns = 4000)
+round(colMeans(as.matrix(projg)), 1)
+```
+
+```{r}
+round(posterior_interval(as.matrix(projg)), 1)
+```
+
+# 5. Model comparison
+
+In this section, we will build a set of models and compare them to find the best one for the heart disease detection task. First, we analyze the previously built logistic regression model that useas a weak informative default prior. After this, a models using a horseshoe and student t priors are tested. The set of priors were chosen due to being fairly popular, and typical benchmark choices to start a research.
+
+# 5.1 Model with default weak informative prior
+
+### Compute LOO log score and compare
+
+We can easily test whether any of the covariates are useful by using cross-validation to compare to a null model:
+
+```{r}
+fit0 <- stan_glm(heart_disease_group ~ 1, data = df_cleaned, 
+                 family = binomial(link = "logit"))
+fit0
+```
+
+```{r}
+(loog <- loo(fitg))
+```
+
+First of all, the results show that all pareto k estimates are good. Secondly, the results show that the covariates clearly contain valuable information.
+
+```{r}
+(loo0 <- loo(fit0))
+```
+```{r}
+loo_compare(loo0, loog)
+```
+
+Based on cross-validation comparison to a baseline result without covariates, it can be seen that the covariates clearly contain valuable information.
+
+### Classification accuracy
+
+For more easily interpretable predictive performance measures, we next compute posterior predictive probabilities and use them to compute classification error.
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fitg)
+preds <- posterior_linpred(fitg, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+The predictive performance above is overoptimistic. To better estimate the predictive performance for new not yet seen data we next use leave-one-out cross-validation:
+
+```{r}        
+loog <- loo(fitg, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loog$psis_object, type="mean", 
+           log_ratios = -log_lik(fitg))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+As can be seen, an accuracy of about 82 % was achieved using the default, weak informative prior on a logistic regression model.
+
+# 5.2 Model with horseshoe prior on weights
+
+```{r}
+fitrhs <- stan_glm(heart_disease_group ~ age + sex + cp + trestbps + chol + fbs 
+                   + restecg + thalach + exang + oldpeak + slope + ca + thal, 
+                   data = df_cleaned, family = binomial(link = "logit"), 
+                   prior=hs(), seed=SEED, refresh=0)
+fitrhs
+```
+
+```{r}
+yrep <- posterior_predict(fitrhs, draws = 50)
+ppc_dens_overlay(y, yrep)
+```
+The posterior predictive check looks good.
+
+```{r}
+mcmc_areas(as.matrix(fitrhs), prob_outer = .95)
+```
+
+```{r}
+(loorhs <- loo(fitrhs))
+```
+```{r}
+loo_compare(loog, loorhs)
+```
+As can be seen, there doesn't seem to be difference between the priors.
+
+### Classification accuracy
+
+For more easily interpretable predictive performance measures, we next compute posterior predictive probabilities and use them to compute classification error.
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fitrhs)
+preds <- posterior_linpred(fitrhs, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+The predictive performance above is overoptimistic. To better estimate the predictive performance for new not yet seen data we next use leave-one-out cross-validation:
+
+```{r}        
+loorhs <- loo(fitrhs, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loorhs$psis_object, type="mean", log_ratios = -log_lik(fitrhs))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+As a result of the horseshoe prior, the accuracy increased from around 82 % to 84 %.
+
+
+# 5.3 Model with Student t prior on weights
+
+Here we’ll use a Student t prior with 7 degrees of freedom and a scale of 2.5, which, as discussed above, is a reasonable default prior when coefficients should be close to zero but have some chance of being large.
+
+```{r}
+t_prior <- student_t(df = 7, location = 0, scale = 2.5)
+fit_st13 <- stan_glm(heart_disease_group ~ age + sex + cp + trestbps + chol 
+                     + fbs + restecg + thalach + exang + oldpeak + slope 
+                     + ca + thal, data = df_cleaned,
+                 family = binomial(link = "logit"), 
+                 prior = t_prior, prior_intercept = t_prior, QR=TRUE,
+                 seed = SEED)
+fit_st13
+```
+
+```{r}
+yrep <- posterior_predict(fit_st13, draws = 50)
+ppc_dens_overlay(y, yrep)
+```
+Compared to the original gaussian and the horseshoe prior, this time the posterior predictive check shows much more promise.
+
+```{r}
+pplot<-plot(fit_st13, "areas", prob = 0.95, prob_outer = 1)
+pplot+ geom_vline(xintercept = 0)
+```
+
+```{r}
+(loost13 <- loo(fit_st13))
+```
+
+```{r}
+loo_compare(loorhs, loost13)
+```
+
+```{r}
+loo_compare(loog, loost13)
+```
+
+No clear difference is noticeable between horseshoe and student t priors, while student t prior is expected to perform much better than the default, weak informative prior.
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fit_st13)
+preds <- posterior_linpred(fit_st13, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+The predictive performance above is overoptimistic. To better estimate the predictive performance for new not yet seen data we next use leave-one-out cross-validation:
+
+```{r}        
+loost13 <- loo(fit_st13, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loost13$psis_object, type="mean", 
+           log_ratios = -log_lik(fit_st13))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+The student t prior performed 1 % weaker than the horseshoe prior.
+
+# 5.4 Models with varying number of features
+
+For this analysis, the best performing horseshoe prior model was chosen. We have already seen that the full modelusing all the 13 features provides an accuracy of 84-85 %. Next, we will test the performance of the model using only the 6, 3, 2, and 1 best features.
+
+## 6 features
+
+```{r}
+fitrhs6 <- stan_glm(heart_disease_group ~ cp + thalach + exang + oldpeak + ca 
+                    + thal, data = df_cleaned, 
+                    family = binomial(link = "logit"), 
+                    prior=hs(), seed=SEED, refresh=0)
+fitrhs6
+```
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fitrhs6)
+preds <- posterior_linpred(fitrhs6, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+```{r}        
+loorhs6 <- loo(fitrhs6, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loorhs6$psis_object, type="mean", 
+           log_ratios = -log_lik(fitrhs6))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+## 3 features
+
+```{r}
+fitrhs3 <- stan_glm(heart_disease_group ~ thal + ca + thalach, 
+                    data = df_cleaned, family = binomial(link = "logit"), 
+                    prior=hs(), seed=SEED, refresh=0)
+fitrhs3
+```
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fitrhs3)
+preds <- posterior_linpred(fitrhs3, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+```{r}        
+loorhs3 <- loo(fitrhs3, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loorhs3$psis_object, type="mean", 
+           log_ratios = -log_lik(fitrhs3))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+
+## 2 features
+
+```{r}
+fitrhs2 <- stan_glm(heart_disease_group ~ thal + ca, data = df_cleaned, 
+                    family = binomial(link = "logit"), prior=hs(), seed=SEED, 
+                    refresh=0)
+fitrhs2
+```
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fitrhs2)
+preds <- posterior_linpred(fitrhs2, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+```{r}        
+loorhs2 <- loo(fitrhs2, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loorhs2$psis_object, type="mean", 
+           log_ratios = -log_lik(fitrhs2))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+## 1 feature, thal
+```{r}
+fitrhs1 <- stan_glm(heart_disease_group ~ thal, data = df_cleaned, 
+                    family = binomial(link = "logit"), prior=hs(), 
+                    seed=SEED, refresh=0)
+fitrhs1
+```
+
+```{r}
+# Predicted probabilities
+linpred <- posterior_linpred(fitrhs1)
+preds <- posterior_linpred(fitrhs1, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+acc
+```
+
+```{r}        
+loorhs1 <- loo(fitrhs1, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loorhs1$psis_object, type="mean", 
+           log_ratios = -log_lik(fitrhs1))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+
+An accuracy of 84 % was achieved using the horseshoe prior and all 13 available covariates.By decreasing the amount of covariates to 6, the accuracy decreased to 80 %, with 3 covariates to 80 %, 2 covariates 79 %, and 1 covatiate 76 %. Therefore, it seems like having even only 1 feature might be enough to perform useful heart disease detection.
+
+
+## 1 feature, ca
+```{r}
+fitrhs1 <- stan_glm(heart_disease_group ~ ca, data = df_cleaned, 
+                    family = binomial(link = "logit"), prior=hs(), 
+                    seed=SEED, refresh=0)
+
+# Predicted probabilities
+linpred <- posterior_linpred(fitrhs1)
+preds <- posterior_linpred(fitrhs1, transform=TRUE)
+pred <- colMeans(preds)
+pr <- as.integer(pred >= 0.5)
+   
+# posterior classification accuracy
+y <- df_cleaned$heart_disease_group
+acc <- round(mean(xor(pr,as.integer(y==0))),2)
+
+loorhs1 <- loo(fitrhs1, save_psis = TRUE)
+# LOO predictive probabilities
+ploo=E_loo(preds, loorhs1$psis_object, type="mean", 
+           log_ratios = -log_lik(fitrhs1))$value
+# LOO classification accuracy
+round(mean(xor(ploo>0.5,as.integer(y==0))),2)
+```
+Using ca instead of thal, decreases the accuracy from 76 % to 74 %, indicating that the model isn't very sensitive on the choice of covariate - at least as long as it is one of the most informative ones. 
+
+# 6. Stan code
+
+stan_glm was used to simplify the fitting of the logistic regression models. Next, lets check the stan code behind the logistic regression model with horseshoe prior that was  used in this study. Note: bernoulli_logit_glm_lpmf is the Generalised Linear Model with Bernoulli likelihood and logit link function, which can be used for logistic regression.
+
+```{r}
+rstan::get_stanmodel(fitrhs$stanfit)
+```
+
+# 7. Conclusions
+
+In this notebook, Bayesian data analysis was performed on a heart disease dataset in order to study if heart diseases can be detected confidently using only a few features and a Bayesian approach. As a result of this study, it was found out that by using logistic regression, a categorization accuracy of 84 % can be achieved using a full model of 13 covariates and horseshoe prior. Based on the analysis, 6 best covariates should be sufficient to perform somewhat equally well. However, such decrease of information decreased the accuracy to 80 %. It was also found that using only 1 or 2 best covariates provided an accuracies of 79% and 76 %, respectively. Therefore, it seems that even only 1 feature might be enough to detect heart diseases on some level. The most informative features turned out to be thalassemia and ca, the number of major vessels colored by fluoroscopy.
+
+Sensitivity of the model was tested by comparing models with different priors and covariates. It was found out that the differences were somewhat marginal, varying between 82 and 84 % depending on the chosen prior. It was also noticed that the model doesn't depend on the most informative thal-covariate, but performs almost equally well by replacing thal with ca. This is promising considering that some datasets might have different covatiates available.
+
+The used dataset has available other versions containing patients from Hungary and Switzerland. These datasets seemed to be having more missing values, and would provide an interesting opportunity to continue testing the model performance. Regarding the model performance, a more complex algorithm could most likely help to improve the classification accuracy.
+
+
+# Original computing environment
+
+```{r}
+sessionInfo()
+```
+
+# References
+[1] ICS, available at: https://archive.ics.uci.edu/ml/datasets/heart+disease, visited: 15.11.2020.
+
+[2] CDC, available at: https://www.cdc.gov/heartdisease/facts.htm, visited: 15.11.2020.
+
+[3] Kaggle, available at: https://www.kaggle.com/ronitf/heart-disease-uci/notebooks, visited: 15.11.2020.
+
+[4] Rawat, S., Heart Disease Prediction, available at: https://towardsdatascience.com/heart-disease-prediction-73468d630cfc, visited: 15.11.2020.
+
+[5] Subbulakshmi, C.V., Medical Dataset Classification: A Machine Learning Paradigm Integrating Particle Swarm Optimization with Extreme Learning Machine Classifier, The Scientific World 
+Journal, 2015/09/30.
+
+[6] Gárate-Escamila, A.K., El Hassani, A.H., and Andrèsbc, E., Classification models for heart disease prediction using feature selection and PCA, Informatics in Medicine Unlocked, vol. 10, 2020.
