@@ -1,0 +1,25 @@
+01:14:12,986 root INFO Logging is working
+01:14:15,220 numexpr.utils INFO Note: NumExpr detected 16 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
+01:14:15,220 numexpr.utils INFO NumExpr defaulting to 8 threads.
+01:14:15,225 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:15,225 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:16,892 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:16,892 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:18,535 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:18,535 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:20,194 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:20,194 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:22,205 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:22,205 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:24,64 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:24,64 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:25,695 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:25,696 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:27,253 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:27,253 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:28,911 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:28,911 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:30,744 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:30,744 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
+01:14:32,615 fbprophet INFO Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+01:14:32,615 fbprophet INFO Disabling daily seasonality. Run prophet with daily_seasonality=True to override this.
