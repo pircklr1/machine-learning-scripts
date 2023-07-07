@@ -1,0 +1,27 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+pylint = "*"
+
+[packages]
+pandas = "*"
+nltk = "*"
+flask = "*"
+gunicorn = "*"
+requests = "*"
+flask-sqlalchemy = "*"
+flask-migrate = "*"
+psycopg2-binary = "*"
+python-dotenv = "*"
+gensim = "*"
+scipy = "*"
+xlrd = "*"
+langdetect = "*"
+spacy = "*"
+importlib-metadata = "*"
+
+[requires]
+python_version = "3.7"

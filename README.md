@@ -1,2 +1,3 @@
-# machine-learning-scripts
-A collection of machine learning and deep learning scripts that I have developed for study, hobby, and work purposes.
+# ML projects
+
+A collection of ML and DL scripts throughout the years developed for study, hobby, and POC purposes.
